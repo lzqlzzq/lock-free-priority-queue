@@ -84,10 +84,10 @@ public:
         auto& bucket = this->buckets[bucketIdx];
 
         if (bucket.queue.try_emplace(std::forward<Args>(args)...)) {
-            bucket.version.fetch_add(1, std::memory_order_release);
+            bucket.version.fetch_add(1, std::memory_order_acq_rel);
             const auto mask = get_priority_mask(bucketIdx);
             if ((this->bitmask.load(std::memory_order_relaxed) & mask) == 0) {
-                this->bitmask.fetch_or(mask, std::memory_order_release);
+                this->bitmask.fetch_or(mask, std::memory_order_acq_rel);
             }
             return true;
         }
@@ -151,7 +151,11 @@ private:
     }
 
     void clear_if_empty(std::uint32_t priority, Bucket& bucket, std::uint64_t observedVersion) noexcept {
+        if (!this->gc.test_and_set(std::memory_order_acq_rel))
+            return;
+
         if (bucket.version.load(std::memory_order_acquire) != observedVersion) {
+            this->gc.clear(std::memory_order_release);
             return;
         }
 
@@ -165,8 +169,10 @@ private:
         // Rollback
         if (bucket.version.load(std::memory_order_acquire) != observedVersion ||
             !bucket.queue.empty()) {
-            this->bitmask.fetch_or(priorityMask, std::memory_order_release);
+            this->bitmask.fetch_or(priorityMask, std::memory_order_acq_rel);
         }
+
+        this->gc.clear(std::memory_order_release);
     }
 
     static std::array<Bucket, maxPriority> make_buckets(std::size_t capacity) {
@@ -181,6 +187,8 @@ private:
 
     std::atomic<PriorityMask> bitmask;
     std::array<Bucket, maxPriority> buckets;
+
+    std::atomic_flag gc;
 };
 
 }
