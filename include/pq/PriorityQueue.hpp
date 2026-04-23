@@ -151,19 +151,18 @@ private:
     }
 
     void clear_if_empty(std::uint32_t priority, Bucket& bucket, std::uint64_t observedVersion) noexcept {
-        if (!bucket.queue.empty()) {
-            return;
-        }
-
         if (bucket.version.load(std::memory_order_acquire) != observedVersion) {
             return;
         }
 
         const auto priorityMask = get_priority_mask(priority);
-        this->bitmask.fetch_and(~priorityMask, std::memory_order_acq_rel);
 
-        // A producer can publish between empty() and fetch_and(); restore the
-        // bit if the bucket became non-empty during that window.
+        // Try
+        if (bucket.queue.empty()
+            && this->bitmask.load(std::memory_order_relaxed) & priorityMask)
+            this->bitmask.fetch_and(~priorityMask, std::memory_order_acq_rel);
+
+        // Rollback
         if (bucket.version.load(std::memory_order_acquire) != observedVersion ||
             !bucket.queue.empty()) {
             this->bitmask.fetch_or(priorityMask, std::memory_order_release);
