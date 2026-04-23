@@ -161,8 +161,7 @@ private:
             this->bitmask.fetch_and(~priorityMask, std::memory_order_acq_rel);
 
         // Rollback
-        if (bucket.version.load(std::memory_order_acquire) != observedVersion
-            || !bucket.queue.empty()) {
+        if (!bucket.queue.empty()) {
             this->bitmask.fetch_or(priorityMask, std::memory_order_acq_rel);
         }
 
