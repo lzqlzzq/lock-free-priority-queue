@@ -1,6 +1,7 @@
 #include "pq/PriorityQueue.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <optional>
@@ -32,16 +33,18 @@ void print_basic_usage() {
 void print_concurrent_usage() {
     constexpr int producerCount = 4;
     constexpr int consumerCount = 4;
-    constexpr int itemsPerProducer = 1000;
+    constexpr int itemsPerProducer = 1024000;
     constexpr int totalItems = producerCount * itemsPerProducer;
 
-    lock_free::PriorityQueue<int> queue(128);
+    lock_free::PriorityQueue<int> queue(1024);
     std::atomic<int> poppedCount{0};
     std::atomic<long long> checksum{0};
 
     std::cout << "Concurrent example\n";
     std::cout << "Start " << producerCount << " producers and "
               << consumerCount << " consumers\n";
+
+    const auto start = std::chrono::high_resolution_clock::now();
 
     std::vector<std::thread> consumers;
     consumers.reserve(consumerCount);
@@ -82,8 +85,13 @@ void print_concurrent_usage() {
         consumer.join();
     }
 
+    const auto elapsed = std::chrono::high_resolution_clock::now() - start;
+    const auto elapsedUs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+
     std::cout << "Popped items: " << poppedCount.load() << '\n';
     std::cout << "Checksum: " << checksum.load() << "\n\n";
+    std::cout << "Elapsed time: " << elapsedUs << " us\n\n";
 }
 
 }  // namespace
