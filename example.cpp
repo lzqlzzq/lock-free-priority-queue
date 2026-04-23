@@ -31,9 +31,9 @@ void print_basic_usage() {
 }
 
 void print_concurrent_usage() {
-    constexpr int producerCount = 4;
-    constexpr int consumerCount = 4;
-    constexpr int itemsPerProducer = 1024000;
+    constexpr int producerCount = 1;
+    constexpr int consumerCount = 8;
+    constexpr int itemsPerProducer = 102400;
     constexpr int totalItems = producerCount * itemsPerProducer;
 
     lock_free::PriorityQueue<int> queue(1024);
@@ -87,7 +87,7 @@ void print_concurrent_usage() {
 
     const auto elapsed = std::chrono::high_resolution_clock::now() - start;
     const auto elapsedUs =
-        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+        std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
 
     std::cout << "Popped items: " << poppedCount.load() << '\n';
     std::cout << "Checksum: " << checksum.load() << "\n\n";
