@@ -85,7 +85,10 @@ public:
 
         if (bucket.queue.try_emplace(std::forward<Args>(args)...)) {
             bucket.version.fetch_add(1, std::memory_order_release);
-            this->bitmask.fetch_or(get_priority_mask(bucketIdx), std::memory_order_release);
+            const auto mask = get_priority_mask(bucketIdx);
+            if ((this->bitmask.load(std::memory_order_relaxed) & mask) == 0) {
+                this->bitmask.fetch_or(mask, std::memory_order_release);
+            }
             return true;
         }
 
