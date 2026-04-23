@@ -4,10 +4,9 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include <cstdint>
 #include <limits>
-#include <new>
 #include <optional>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -70,7 +69,7 @@ class PriorityQueue {
 
 public:
     explicit PriorityQueue(std::size_t capacity) :
-        bitmask(0), buckets(make_buckets(capacity)) {}
+        bitmask(0), buckets(make_buckets(capacity)), gc(false) {}
     ~PriorityQueue() = default;
 
     PriorityQueue(const PriorityQueue&) = delete;
@@ -108,21 +107,18 @@ public:
 
         for (;;) {
             PriorityMask candidates = this->bitmask.load(std::memory_order_acquire);
-            if (candidates == 0) {
+            if (candidates == 0)
                 return std::nullopt;
-            }
 
-            const auto bucketIdx = static_cast<std::uint32_t>(countr_zero64(candidates));
+            const auto bucketIdx = countr_zero64(candidates);
             auto& bucket = this->buckets[bucketIdx];
             const auto version = bucket.version.load(std::memory_order_acquire);
 
             if (bucket.queue.try_pop(item)) {
-                const auto currentVersion = bucket.version.load(std::memory_order_acquire);
-                this->clear_if_empty(bucketIdx, bucket, currentVersion);
-                return std::move(item);
-            }
+                this->clear_if_empty(bucketIdx, bucket, version);
 
-            if (bucket.version.load(std::memory_order_acquire) == version) {
+                return std::move(item);
+            } else {
                 this->clear_if_empty(bucketIdx, bucket, version);
             }
         }
@@ -151,11 +147,9 @@ private:
     }
 
     void clear_if_empty(std::uint32_t priority, Bucket& bucket, std::uint64_t observedVersion) noexcept {
-        if (!this->gc.test_and_set(std::memory_order_acq_rel))
-            return;
+        if (!this->gc.test_and_set(std::memory_order_acq_rel)) [[__likely__]] {
+            std::this_thread::yield();
 
-        if (bucket.version.load(std::memory_order_acquire) != observedVersion) {
-            this->gc.clear(std::memory_order_release);
             return;
         }
 
@@ -167,8 +161,8 @@ private:
             this->bitmask.fetch_and(~priorityMask, std::memory_order_acq_rel);
 
         // Rollback
-        if (bucket.version.load(std::memory_order_acquire) != observedVersion ||
-            !bucket.queue.empty()) {
+        if (bucket.version.load(std::memory_order_acquire) != observedVersion
+            || !bucket.queue.empty()) {
             this->bitmask.fetch_or(priorityMask, std::memory_order_acq_rel);
         }
 
@@ -188,7 +182,7 @@ private:
     std::atomic<PriorityMask> bitmask;
     std::array<Bucket, maxPriority> buckets;
 
-    std::atomic_flag gc;
+    std::atomic_flag gc{};
 };
 
 }
